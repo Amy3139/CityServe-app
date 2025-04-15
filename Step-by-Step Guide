@@ -1,0 +1,88 @@
+1. Prerequisites
+
+	•	monday.com API token
+	•	Board ID from your CRM (can fetch this via boards query)
+	•	A Google Sheet you own
+	•	A Google Cloud project with Sheets API enabled
+	•	A credentials.json file from Google for OAuth
+
+2. Install Python Dependencies
+
+pip install requests google-api-python-client google-auth-httplib2 google-auth-oauthlib
+
+3. Python Code
+
+import requests
+import json
+import os.path
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+
+# ====== CONFIG ======
+MONDAY_API_KEY = 'your_monday_api_key'
+BOARD_ID = 'your_board_id'
+SPREADSHEET_ID = 'your_google_sheet_id'
+RANGE_NAME = 'Leads!A1'  # Adjust for your sheet
+
+# ====== STEP 1: Get data from monday.com ======
+def get_monday_leads():
+    url = 'https://api.monday.com/v2'
+    headers = {
+        "Authorization": MONDAY_API_KEY,
+        "Content-Type": "application/json"
+    }
+    query = {
+        "query": f'''
+        {{
+            items (board_id: {BOARD_ID}) {{
+                name
+                column_values {{
+                    title
+                    text
+                }}
+            }}
+        }}
+        '''
+    }
+
+    response = requests.post(url, headers=headers, json=query)
+    data = response.json()
+    leads = []
+
+    for item in data['data']['items']:
+        name = item['name']
+        row = [name]
+        row += [col['text'] for col in item['column_values']]
+        leads.append(row)
+
+    return leads
+
+# ====== STEP 2: Push to Google Sheets ======
+def push_to_google_sheets(data):
+    creds = service_account.Credentials.from_service_account_file(
+        'credentials.json',
+        scopes=["https://www.googleapis.com/auth/spreadsheets"]
+    )
+
+    service = build('sheets', 'v4', credentials=creds)
+    sheet = service.spreadsheets()
+
+    sheet.values().update(
+        spreadsheetId=SPREADSHEET_ID,
+        range=RANGE_NAME,
+        valueInputOption='RAW',
+        body={'values': data}
+    ).execute()
+
+# ====== RUN ======
+leads_data = get_monday_leads()
+push_to_google_sheets(leads_data)
+print("Sync complete!")
+
+4. Result
+
+This script:
+
+	•	Authenticates with monday.com and Google Sheets
+	•	Pulls all items from your CRM board
+	•	Uploads names + columns as rows to your Google Sheet
